@@ -1,0 +1,94 @@
+{
+  "version": "1.1.1",
+  "windows": {
+    "main": {
+      "main": true,
+      "url": "app://editor/index.html",
+      "windowType": "dockable",
+      "x": 0,
+      "y": 43,
+      "width": 1800,
+      "height": 1126,
+      "layout": {
+        "type": "dock-h",
+        "children": [
+          {
+            "width": 428,
+            "height": 1069,
+            "type": "dock-v",
+            "children": [
+              {
+                "width": 428,
+                "height": 371,
+                "type": "panel",
+                "active": 0,
+                "children": [
+                  "hierarchy"
+                ]
+              },
+              {
+                "width": 428,
+                "height": 695,
+                "type": "panel",
+                "active": 0,
+                "children": [
+                  "assets"
+                ]
+              }
+            ]
+          },
+          {
+            "width": 938,
+            "height": 1069,
+            "type": "dock-v",
+            "children": [
+              {
+                "width": 938,
+                "height": 770,
+                "type": "panel",
+                "active": 0,
+                "children": [
+                  "scene"
+                ]
+              },
+              {
+                "width": 938,
+                "height": 296,
+                "type": "panel",
+                "active": 0,
+                "children": [
+                  "console",
+                  "timeline",
+                  "game-window"
+                ]
+              }
+            ]
+          },
+          {
+            "width": 428,
+            "height": 1069,
+            "type": "panel",
+            "active": 0,
+            "children": [
+              "inspector",
+              "cocos-services"
+            ]
+          }
+        ]
+      },
+      "panels": [
+        "hierarchy",
+        "assets",
+        "scene",
+        "console",
+        "timeline",
+        "game-window",
+        "inspector",
+        "cocos-services"
+      ]
+    },
+    " common-asset-worker-worker": {}
+  },
+  "panels": {},
+  "panelLabelWidth": {}
+}

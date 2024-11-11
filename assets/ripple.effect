@@ -1,0 +1,314 @@
+// Copyright (c) 2017-2018 Xiamen Yaji Software Co., Ltd.
+
+CCEffect %{
+  techniques:
+  - passes:
+    - vert: vs
+      frag: fs
+      blendState:
+        targets:
+        - blend: true
+      rasterizerState:
+        cullMode: none
+      properties:
+        texture: { value: white }
+        canvas_size: { value: [ 750.0, 1624.0 ] }
+        center: { value: [ 0.5, 0.5 ] }
+        // 波形速度
+        wave_speed: { value: 10.0 }
+        // 波形宽度
+        wave_width: { value: 1.0 }
+        // 波形高度
+        wave_height: { value: 0.1 }
+        // 波纹半径
+        wave_r: { valur: 0.3}
+        // 歌词波形速度
+        lyrics_wave_speed: { value: 5.0 }
+        // 歌词波形宽度
+        lyrics_wave_width: { value: 0.1 } // 0.1-1000000
+        // 歌词波形高度
+        lyrics_wave_height: { value: 0.1 }
+        // 歌词波纹半径
+        lyrics_wave_r: { valur: 0.3}
+        // 歌词
+        lyrics_texture: { value: white }
+        // 歌词缩放比例
+        lyrics_scale: { value: 0.5 }
+        // 歌词开始时间
+        lyrics_time1: { value: 0.0 }
+        // 歌词停留时间
+        lyrics_stay_time: { value: 3.0 }
+         // 圆圈中心点
+        circle_center: { value: [ 0.1, 0.3 ] }
+        circle_time1: { value: 0.0 }
+        // 圆圈颜色
+        circle_color: { value: [124., 255., 137., 255.]}
+        // 歌词颜色
+        lyrics_color: { value: [124., 255., 137., 255.]}
+        // 圆圈粗细
+        circle_width: { value: 0.002 }  // 偏移量
+        // 波纹相
+        wave_radius: {  value: 0.18 } // 一个波纹偏移范围
+        wave_offset: { value: 2.0 } // 偏移量
+}%
+
+
+CCProgram vs %{
+  precision highp float;
+
+  #include <cc-global>
+  #include <cc-local>
+
+  in vec3 a_position;
+  in vec4 a_color;
+  out vec4 v_color;
+
+  #if USE_TEXTURE
+  in vec2 a_uv0;
+  out vec2 v_uv0;
+  #endif
+
+  void main () {
+    vec4 pos = vec4(a_position, 1);
+
+    #if CC_USE_MODEL
+    pos = cc_matViewProj * cc_matWorld * pos;
+    #else
+    pos = cc_matViewProj * pos;
+    #endif
+
+    #if USE_TEXTURE
+    v_uv0 = a_uv0;
+    #endif
+
+    v_color = a_color;
+
+    gl_Position = pos;
+  }
+}%
+
+
+CCProgram fs %{
+  precision highp float;
+
+  #include <alpha-test>
+  #include <cc-global>
+
+  in vec4 v_color;
+
+  #if USE_TEXTURE
+  in vec2 v_uv0;
+  uniform sampler2D texture;
+  #endif
+  uniform sampler2D lyrics_texture;
+
+
+  uniform ARGS{
+    vec4 circle_color;
+    vec4 lyrics_color;
+    vec2 center;
+    vec2 canvas_size;
+    vec2 circle_center;
+    float circle_time1;
+    float wave_speed;
+    float lyrics_wave_height;
+    float lyrics_wave_width;
+    float lyrics_wave_speed;
+    float lyrics_wave_r;
+    float lyrics_scale;
+    float lyrics_time1;
+    float lyrics_stay_time;
+    float wave_height;
+    float wave_r;
+    float wave_width;
+    float circle_width;
+    float wave_radius;
+    float wave_offset;
+  };
+
+  /** 
+    画圆
+    pos: 圆中心点位置
+    r: 半径
+    blur: 光圈
+    uv: 视图点
+  */
+  float solidCircle(vec2 pos, float r, float blur, vec2 uv){
+      float l = length(uv-pos);
+      return smoothstep(r, r-blur, l);
+  }
+  /**
+    * 画圈
+    * pos: 中心点
+    * r1: 外圈半径
+    * r2: 内圈半径
+    * uv: 点
+  */
+  float borderCircle(vec2 pos, float r1, float r2, float blur, vec2 uv ) {
+    float s1 = solidCircle(pos, r1, blur, uv);
+    float s2 = solidCircle(pos, r2, blur, uv);
+    return s1 - s2;
+
+  }
+
+  vec3 blendAdd(vec3 base, vec3 blend) {
+	return min(base+blend,vec3(1.0));
+}
+
+  vec4 blendAdd(vec4 baseColor, vec4 overlayColor) {
+    return clamp(baseColor + overlayColor, 0.0, 1.0);
+  }
+
+  vec4 blendFilter(vec4 baseColor, vec4 overlayColor) {
+    return vec4(1.0) - (vec4(1.0) - baseColor) * (vec4(1.0) - overlayColor);
+  }
+  
+
+  vec4 blendOverlay(vec4 baseColor, vec4 overlayColor) {
+    return overlayColor * baseColor + (vec4(1.0) - overlayColor) * (vec4(2.0) * baseColor - vec4(1.0));
+  }
+
+  vec3 blendNormal(vec3 base, vec3 blend) {
+    return blend;
+  }
+
+  vec3 blendNormal(vec3 base, vec3 blend, float opacity) {
+    return (blendNormal(base, blend) * opacity + base * (1.0 - opacity));
+  }
+
+  #define sqr(x) x*x
+  const float PI = 3.1415926;
+   float Guass(vec2 p, float sigma) 
+   {
+	  return ( 1./(2.*PI*sqr(sigma)) )
+        *exp( -(sqr(p.x)+sqr(p.y))/(2.*pow(sigma, 2.)) );
+   }
+  vec4 rgbaGaussianBlur(sampler2D Tex, vec2 UV, vec2 Size, float radius) 
+		{
+      vec4 sum = vec4(0.0);
+      vec2 normalizedSize = vec2(1.0 / Size);
+      vec4 color = vec4(0.0);
+      float total_gauss = 0.0;
+
+      float sigma = radius; //6.0;
+      // 进行二维矩阵遍历
+      for (float x = -10.0; x <= 10.0; x++) {
+          for (float y = -10.0; y <= 10.0; y++) {
+            // 计算对应的纹理坐标
+            float gauss = Guass(vec2(x, y), sigma);
+            sum += texture2D(Tex, UV + normalizedSize * vec2(x, y)) * gauss;
+            // 计算出高斯权重
+            total_gauss += gauss;
+          }
+      }
+			
+      sum = sum / total_gauss;
+      return vec4(1., 1., 1., sum.a);
+    }
+  float easeInExpo(float x) {
+    return x == 0.0 ? 0.0 : pow(2., 10. * x - 10.);
+  }
+
+  float easeInOutCirc(float x) {
+    return x < 0.5 ? (1. - sqrt(1. - pow(2. * x, 2.))) / 2. : (sqrt(1. - pow(-2. * x + 2., 2.)) + 1.) / 2.;
+  }
+
+  float easeOutCubic(float x) {
+    return 1.0 - pow(1.0 - x, 3.0);
+  }
+
+  // 波纹偏移量
+  vec2 getWaveOffset(vec2 center, vec2 uv, float wave_width, float wave_height, float wave_speed, float wave_r) {
+    vec2 distance_vec = center - uv;
+    float distance = length(center - uv);
+    float waveRFactor = clamp(wave_r - distance, 0.,1.) / wave_r; // 0-1, wave_r 0-1  waveRFactor 0-1
+		float sin_factor = sin(distance * 100. * wave_width - cc_time.x * wave_speed) * 0.1 * wave_height * 1. / (1. + distance) * waveRFactor; // 水波纹往外波动,  // 水波从里到外波长和频率不变，振幅变小，且和半径成反比（1/r）
+		vec2 offset = normalize(distance_vec) * sin_factor;
+		vec2 result_uv = offset + v_uv0;
+    return result_uv;
+  }
+
+  // 缩放模型
+  mat2 scale(vec2 scale){
+      return mat2(scale.x,0.0,
+                  0.0,scale.y);
+  }
+
+  vec2 getScaleUV(vec2 uv, vec2 center, float scaleFactor) {
+    vec2 st = uv - center;
+    st = scale(vec2(1. / scaleFactor)) * st;
+    st = st + center;
+    return st;
+  }
+
+
+
+  void main() {
+		vec2 scalex_vec = vec2(canvas_size.x / canvas_size.y, 1.0); // 以y为单位长度
+    vec2 wave_uv = getWaveOffset(center * scalex_vec, v_uv0 * scalex_vec , wave_width, wave_height, wave_speed, wave_r);
+    // 叠加圆圈方案：绘制
+    // 控制圆圈运动速度，从0-1
+    float circle_speed = clamp(circle_time1, 0., 1.);
+    float r = circle_speed * 0.2;
+    float circleShape = borderCircle(circle_center, r, r - circle_width, 0.001, wave_uv * scalex_vec);
+    vec4 circleColorNormal = circle_color / 255.;
+    vec4 lyricsColorNormal = lyrics_color / 255.;
+    // 主题色波纹 其他地方是黑色
+    vec4 circleColor = circleShape > 0.0 ? vec4(circleColorNormal.rgb, (1. - circle_speed) * circleShape) : vec4(0.0);
+    // 叠加歌词, cocos label的texture 只通过a通道标注像素，其他通道都是1.0
+    // lyrics_wave_width 1-1000000 波纹宽到没有波纹
+    // 控制歌词运动速度 从0-1 持续n秒1，从1-0
+    float time = lyrics_time1;
+    float split = (lyrics_stay_time + 2.) / 2.;
+    float split_scale = 1.0 / split;
+    time = clamp(1.-abs(lyrics_time1/split-1.), 0., split_scale)/split_scale;
+    // TODO: 这里会闪一下
+    // time = lyrics_time1 > 1. && lyrics_time1 < lyrics_stay_time +1. ? 0.99 : (lyrics_time1 < 1. ? lyrics_time1 : lyrics_time1 - lyrics_stay_time);
+    // 规范化到0-0.99
+    float lyrics_run_speed = clamp(1. - abs(time - 1.), 0., 0.99);
+    float lyrics_speed = easeOutCubic(lyrics_run_speed);
+    float alpha_lyrics_run_speed = clamp(1. - abs(time - 1.), 0.0, 1.0);
+    float lyrics_alpha_speed = easeOutCubic(alpha_lyrics_run_speed);
+
+    // lyrics_speed 0-1改为
+
+    // 透明度变化
+    float disappear = lyrics_time1 < 2. + lyrics_stay_time ? 1.0 : 0.0;
+    vec2 wave_lyrics_uv = getWaveOffset(vec2(0.5, 0.5) * scalex_vec, v_uv0 * scalex_vec , lyrics_wave_width, lyrics_wave_height , lyrics_wave_speed, lyrics_wave_r*  clamp((1. - lyrics_speed), 0.1, 1.));
+      // * vec2(0.5, 0.0)
+    // vec4 lyricsColor = vec4(texture(lyrics_texture, lyrics_scale_uv).a);
+    // 歌词从小到到变化 x-1.0
+    vec2 wave_scale_lyrics_uv = getScaleUV(wave_lyrics_uv, vec2(0.5, 0.2), (1. - lyrics_scale) * lyrics_speed + lyrics_scale);
+    // 歌词从模糊到清晰变化
+    vec4 blurLyricsColor = vec4(rgbaGaussianBlur(lyrics_texture, wave_scale_lyrics_uv, canvas_size, (1. - lyrics_speed)*10.).a); // radius 1-10, 清晰到模糊,需要的效果是模糊到清晰
+    // 不要模糊 用来调文字扭曲效果 TODO: 调波纹宽度有效果
+    // vec4 blurLyricsColor = texture(lyrics_texture, wave_lyrics_uv);
+    // 歌词不能缩放为0，所以通过透明度为0消失
+    blurLyricsColor = blurLyricsColor * vec4(disappear);
+    // 加上模糊
+    vec4 color = vec4(blendNormal(texture(texture, wave_uv).rgb, circleColor.rgb, circleColor.a), 1.);
+    // color = blendFilter(color, blurLyricsColor);
+    vec4 lyricsShape = blurLyricsColor.a > 0.01 ? lyricsColorNormal : vec4(0.0);
+    color = vec4(blendNormal(color.rgb, lyricsShape.rgb, lyricsShape.a * alpha_lyrics_run_speed), 1.);
+    // color = blurLyricsColor.a > 0.01 ? lyricsColorNormal : color;
+    gl_FragColor = color;
+    // gl_FragColor = vec4(color.rgb, blendFilter(color, vec4((1. - clamp(circle_time1 / 1.5, 0., 1.)) * circleShape)).a);
+    // gl_FragColor = blendFilter(color, vec4((1. - clamp(circle_time1 / 1.5, 0., 1.)) * circleShape));
+    // gl_FragColor = vec4(color.rgb, blendFilter(color, vec4((1. - clamp(circle_time1 / 1.5, 0., 1.)) * circleShape)).a);
+
+    // gl_FragColor = blendFilter(color, lyricsColor);
+
+
+    // gl_FragColor = circleColor;
+    // gl_FragColor = circleColorNormal;
+    // gl_FragColor = blurLyricsColor.a > 0.1 ? blurLyricsColor : color;
+
+
+    
+
+    // gl_FragColor = circle2 > 0.9 ? vec4(circle2) : texture(texture, uv);
+    // gl_FragColor = texture(texture, uv);
+
+    // 圆圈透明度不变   最后混合之后透明度变化
+  }
+}%
